@@ -115,8 +115,12 @@ def main():
     st.subheader("Call Evaluation Results")
     st.dataframe(df)
 
-    # Call details
-    st.subheader("Call Details")
+# Call details
+st.subheader("Call Details")
+
+if df.empty:
+    st.info("No calls have been analyzed yet. Please upload and analyze a call to see details.")
+else:
     selected_call = st.selectbox("Select a call to view details", df["Call ID"].tolist())
     call_data = df[df["Call ID"] == selected_call].iloc[0]
 
@@ -139,8 +143,9 @@ def main():
 
     st.text_area("Transcript", value=call_data["Transcript"], height=200)
 
-    # Data visualization
-    st.subheader("Performance Overview")
+# Data visualization (keep this part as it was)
+st.subheader("Performance Overview")
+if not df.empty:
     fig = go.Figure(data=[
         go.Bar(name=criterion, x=df["Call ID"], y=df[criterion])
         for criterion in [
@@ -154,6 +159,8 @@ def main():
     ])
     fig.update_layout(barmode='group', height=400)
     st.plotly_chart(fig)
+else:
+    st.info("No data available for visualization. Please analyze some calls first.")
 
 if __name__ == "__main__":
     main()
