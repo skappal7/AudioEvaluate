@@ -1,0 +1,9 @@
+streamlit
+pandas
+speechrecognition
+spacy
+nltk
+textblob
+wordcloud
+matplotlib
+seaborn
