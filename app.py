@@ -115,52 +115,52 @@ def main():
     st.subheader("Call Evaluation Results")
     st.dataframe(df)
 
-# Call details
-st.subheader("Call Details")
+    # Call details
+    st.subheader("Call Details")
 
-if df.empty:
-    st.info("No calls have been analyzed yet. Please upload and analyze a call to see details.")
-else:
-    selected_call = st.selectbox("Select a call to view details", df["Call ID"].tolist())
-    call_data = df[df["Call ID"] == selected_call].iloc[0]
+    if df.empty:
+        st.info("No calls have been analyzed yet. Please upload and analyze a call to see details.")
+    else:
+        selected_call = st.selectbox("Select a call to view details", df["Call ID"].tolist())
+        call_data = df[df["Call ID"] == selected_call].iloc[0]
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write(f"Call ID: {call_data['Call ID']}")
-        st.write(f"Duration: {call_data['Duration']} seconds")
-        st.write(f"Category: {call_data['Category']}")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"Call ID: {call_data['Call ID']}")
+            st.write(f"Duration: {call_data['Duration']} seconds")
+            st.write(f"Category: {call_data['Category']}")
 
-    with col2:
-        for criterion in [
-            "Problem Addressed?",
-            "Professional Tone?",
-            "Customer Connection?",
-            "Acknowledgment?",
-            "Understanding Shown?",
-            "Clear Communication?"
-        ]:
-            st.write(f"{criterion} {'✅' if call_data[criterion] else '❌'}")
+        with col2:
+            for criterion in [
+                "Problem Addressed?",
+                "Professional Tone?",
+                "Customer Connection?",
+                "Acknowledgment?",
+                "Understanding Shown?",
+                "Clear Communication?"
+            ]:
+                st.write(f"{criterion} {'✅' if call_data[criterion] else '❌'}")
 
-    st.text_area("Transcript", value=call_data["Transcript"], height=200)
+        st.text_area("Transcript", value=call_data["Transcript"], height=200)
 
-# Data visualization (keep this part as it was)
-st.subheader("Performance Overview")
-if not df.empty:
-    fig = go.Figure(data=[
-        go.Bar(name=criterion, x=df["Call ID"], y=df[criterion])
-        for criterion in [
-            "Problem Addressed?",
-            "Professional Tone?",
-            "Customer Connection?",
-            "Acknowledgment?",
-            "Understanding Shown?",
-            "Clear Communication?"
-        ]
-    ])
-    fig.update_layout(barmode='group', height=400)
-    st.plotly_chart(fig)
-else:
-    st.info("No data available for visualization. Please analyze some calls first.")
+    # Data visualization
+    st.subheader("Performance Overview")
+    if not df.empty:
+        fig = go.Figure(data=[
+            go.Bar(name=criterion, x=df["Call ID"], y=df[criterion])
+            for criterion in [
+                "Problem Addressed?",
+                "Professional Tone?",
+                "Customer Connection?",
+                "Acknowledgment?",
+                "Understanding Shown?",
+                "Clear Communication?"
+            ]
+        ])
+        fig.update_layout(barmode='group', height=400)
+        st.plotly_chart(fig)
+    else:
+        st.info("No data available for visualization. Please analyze some calls first.")
 
 if __name__ == "__main__":
     main()
