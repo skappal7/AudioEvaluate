@@ -1,18 +1,20 @@
 import streamlit as st
+import requests
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import whisper
-import torch
 from transformers import pipeline
 import os
 import tempfile
 
-# Set up AI models
-@st.cache_resource
-def load_whisper_model():
-    return whisper.load_model("base")
+# Set the page config
+st.set_page_config(page_title="AI-Powered Call Evaluation System", page_icon="📞", layout="wide")
 
+# API details for Whisper
+WHISPER_API_URL = "https://api-inference.huggingface.co/models/openai/whisper-large-v3"
+headers = {"Authorization": "Bearer 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"}
+
+# Set up AI models
 @st.cache_resource
 def load_text_classification_model():
     return pipeline("text-classification", model="distilbert-base-uncased-finetuned-sst-2-english")
@@ -21,19 +23,17 @@ def load_text_classification_model():
 def load_zero_shot_classification_model():
     return pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
 
-whisper_model = load_whisper_model()
 text_classifier = load_text_classification_model()
 zero_shot_classifier = load_zero_shot_classification_model()
 
-# Function to transcribe audio
+# Function to transcribe audio using Whisper API
 def transcribe_audio(audio_file):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
-        temp_audio.write(audio_file.read())
-        temp_audio_path = temp_audio.name
-
-    result = whisper_model.transcribe(temp_audio_path)
-    os.unlink(temp_audio_path)
-    return result["text"]
+    response = requests.post(WHISPER_API_URL, headers=headers, data=audio_file.read())
+    if response.status_code == 200:
+        result = response.json()
+        if "text" in result:
+            return result["text"]
+    return "Transcription failed. Please try again."
 
 # Function to analyze call category
 def analyze_call(transcript):
@@ -80,12 +80,12 @@ def main():
     df = load_data()
 
     # File uploader
-    uploaded_file = st.file_uploader("Choose an audio file", type=["wav", "mp3"])
+    uploaded_file = st.file_uploader("Choose an audio file", type=["wav", "mp3", "flac"])
 
     if uploaded_file is not None:
-        st.audio(uploaded_file, format="audio/wav")
+        st.audio(uploaded_file)
 
-        if st.button("Analyze Call"):
+        if st.button("Analyze Call", key="analyze_button"):
             with st.spinner("Transcribing and analyzing call..."):
                 # Transcribe audio
                 transcript = transcribe_audio(uploaded_file)
@@ -104,7 +104,7 @@ def main():
                     "Transcript": transcript,
                     **evaluation
                 }
-                df = df.append(new_row, ignore_index=True)
+                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
                 # Save updated dataframe
                 df.to_csv("call_data.csv", index=False)
@@ -117,7 +117,7 @@ def main():
 
     # Call details
     st.subheader("Call Details")
-    selected_call = st.selectbox("Select a call to view details", df["Call ID"])
+    selected_call = st.selectbox("Select a call to view details", df["Call ID"].tolist())
     call_data = df[df["Call ID"] == selected_call].iloc[0]
 
     col1, col2 = st.columns(2)
