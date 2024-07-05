@@ -1,166 +1,206 @@
 import streamlit as st
-import requests
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from transformers import pipeline
+import requests
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+import time
 
-# Set the page config
+# Set up the page
 st.set_page_config(page_title="AI-Powered Call Evaluation System", page_icon="📞", layout="wide")
 
-# API details for Whisper
+# File path for CSV
+CSV_FILE = "calls_data.csv"
+
+# API setup
 WHISPER_API_URL = "https://api-inference.huggingface.co/models/openai/whisper-large-v3"
 headers = {"Authorization": "Bearer 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"}
 
-# Set up AI models
+# Load AI models
 @st.cache_resource
-def load_text_classification_model():
-    return pipeline("text-classification", model="distilbert-base-uncased-finetuned-sst-2-english")
+def load_models():
+    text_classifier = pipeline("text-classification", model="distilbert-base-uncased-finetuned-sst-2-english")
+    zero_shot_classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+    return text_classifier, zero_shot_classifier
 
-@st.cache_resource
-def load_zero_shot_classification_model():
-    return pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+text_classifier, zero_shot_classifier = load_models()
 
-text_classifier = load_text_classification_model()
-zero_shot_classifier = load_zero_shot_classification_model()
-
-# Function to transcribe audio using Whisper API
-def transcribe_audio(audio_file):
-    response = requests.post(WHISPER_API_URL, headers=headers, data=audio_file.read())
+# File processing functions
+def process_audio_chunk(chunk):
+    response = requests.post(WHISPER_API_URL, headers=headers, data=chunk)
     if response.status_code == 200:
         result = response.json()
-        if "text" in result:
-            return result["text"]
-    return "Transcription failed. Please try again."
+        return result.get("text", "")
+    return ""
 
-# Function to analyze call category
+def transcribe_audio(audio_file):
+    chunk_size = 1024 * 1024  # 1MB chunks
+    transcription = ""
+    with audio_file as file:
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            while chunk := file.read(chunk_size):
+                futures.append(executor.submit(process_audio_chunk, chunk))
+            for future in futures:
+                transcription += future.result()
+    return transcription
+
+# Analysis functions
 def analyze_call(transcript):
     categories = ["Customer Service", "Technical Support", "Sales", "Billing"]
     result = zero_shot_classifier(transcript, categories)
     return result["labels"][0]
 
-# Function to evaluate call
 def evaluate_call(transcript):
-    criteria = [
-        "Problem Addressed?",
-        "Professional Tone?",
-        "Customer Connection?",
-        "Acknowledgment?",
-        "Understanding Shown?",
-        "Clear Communication?"
-    ]
+    criteria = ["Problem Addressed", "Professional Tone", "Customer Connection", "Acknowledgment", "Understanding Shown", "Clear Communication"]
     results = {}
     for criterion in criteria:
         result = zero_shot_classifier(transcript, [criterion, f"Not {criterion}"])
-        results[criterion] = result["labels"][0] == criterion
+        results[criterion] = result["scores"][0] > 0.5
     return results
 
-# Function to load or create data
-@st.cache_data
-def load_data():
-    if os.path.exists("call_data.csv"):
-        return pd.read_csv("call_data.csv")
-    else:
-        return pd.DataFrame(columns=["Call ID", "Duration", "Category", "Transcript"] + [
-            "Problem Addressed?",
-            "Professional Tone?",
-            "Customer Connection?",
-            "Acknowledgment?",
-            "Understanding Shown?",
-            "Clear Communication?"
-        ])
+# UI Components
+def render_call_table(df):
+    st.markdown("""
+    <style>
+    .call-table {
+        font-family: Arial, sans-serif;
+        border-collapse: collapse;
+        width: 100%;
+    }
+    .call-table td, .call-table th {
+        border: 1px solid #ddd;
+        padding: 8px;
+    }
+    .call-table tr:nth-child(even) {background-color: #f2f2f2;}
+    .call-table tr:hover {background-color: #ddd; cursor: pointer;}
+    .call-table th {
+        padding-top: 12px;
+        padding-bottom: 12px;
+        text-align: left;
+        background-color: #4CAF50;
+        color: white;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    table_html = """
+    <table class="call-table">
+        <tr>
+            <th>#</th>
+            <th>Call</th>
+            <th>Issues resolved?</th>
+            <th>Polite?</th>
+            <th>Rapport?</th>
+            <th>Apology?</th>
+            <th>Empathy?</th>
+            <th>Jargon-free?</th>
+        </tr>
+    """
+
+    for _, row in df.iterrows():
+        table_html += f"""
+        <tr onclick="handleRowClick('{row['Call ID']}')">
+            <td>{row.name + 1}</td>
+            <td>{row['Call ID']} {row['Duration']}</td>
+            <td><div style="width:100%;background-color:{'green' if row['Issues resolved?'] else 'red'};height:20px;"></div></td>
+            <td>{'✅' if row['Polite?'] else '❌'}</td>
+            <td>{'✅' if row['Rapport?'] else '❌'}</td>
+            <td>{'✅' if row['Apology?'] else '❌'}</td>
+            <td>{'✅' if row['Empathy?'] else '❌'}</td>
+            <td>{'✅' if row['Jargon-free?'] else '❌'}</td>
+        </tr>
+        """
+
+    table_html += "</table>"
+
+    st.markdown(table_html, unsafe_allow_html=True)
+
+    st.markdown("""
+    <script>
+    function handleRowClick(callId) {
+        Streamlit.setComponentValue(callId);
+    }
+    </script>
+    """, unsafe_allow_html=True)
+
+def show_call_details(df, call_id):
+    call_data = df[df['Call ID'] == call_id].iloc[0]
+    st.subheader(f"Details for {call_id}")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write(f"Duration: {call_data['Duration']} seconds")
+        st.write(f"Category: {call_data['Category']}")
+    with col2:
+        for criterion in ['Issues resolved?', 'Polite?', 'Rapport?', 'Apology?', 'Empathy?', 'Jargon-free?']:
+            st.write(f"{criterion} {'✅' if call_data[criterion] else '❌'}")
+    st.text_area("Transcript", value=call_data['Transcript'], height=200)
 
 # Main app
 def main():
     st.title("AI-Powered Call Evaluation System")
 
-    # Load data
-    df = load_data()
+    if os.path.exists(CSV_FILE):
+        df = pd.read_csv(CSV_FILE)
+    else:
+        df = pd.DataFrame(columns=['Call ID', 'Duration', 'Category', 'Transcript', 'Issues resolved?', 'Polite?', 'Rapport?', 'Apology?', 'Empathy?', 'Jargon-free?'])
 
-    # File uploader
     uploaded_file = st.file_uploader("Choose an audio file", type=["wav", "mp3", "flac"])
 
     if uploaded_file is not None:
         st.audio(uploaded_file)
 
-        if st.button("Analyze Call", key="analyze_button"):
+        if st.button("Analyze Call"):
             with st.spinner("Transcribing and analyzing call..."):
-                # Transcribe audio
                 transcript = transcribe_audio(uploaded_file)
-
-                # Analyze call
                 category = analyze_call(transcript)
-
-                # Evaluate call
                 evaluation = evaluate_call(transcript)
 
-                # Add to dataframe
-                new_row = {
-                    "Call ID": f"Call-{len(df)+1:03d}",
-                    "Duration": 300,  # Placeholder, replace with actual duration
-                    "Category": category,
-                    "Transcript": transcript,
-                    **evaluation
-                }
-                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                new_row = pd.DataFrame({
+                    'Call ID': [f"Call-{int(time.time())}"],
+                    'Duration': [300],  # Placeholder duration
+                    'Category': [category],
+                    'Transcript': [transcript],
+                    'Issues resolved?': [evaluation['Problem Addressed']],
+                    'Polite?': [evaluation['Professional Tone']],
+                    'Rapport?': [evaluation['Customer Connection']],
+                    'Apology?': [evaluation['Acknowledgment']],
+                    'Empathy?': [evaluation['Understanding Shown']],
+                    'Jargon-free?': [evaluation['Clear Communication']]
+                })
 
-                # Save updated dataframe
-                df.to_csv("call_data.csv", index=False)
+                df = pd.concat([df, new_row], ignore_index=True)
+                df.to_csv(CSV_FILE, index=False)
+                st.success("Call analyzed and added to the dataset!")
 
-                st.success("Call analyzed and added to the database!")
-
-    # Display data
-    st.subheader("Call Evaluation Results")
-    st.dataframe(df)
-
-    # Call details
-    st.subheader("Call Details")
-
-    if df.empty:
-        st.info("No calls have been analyzed yet. Please upload and analyze a call to see details.")
-    else:
-        selected_call = st.selectbox("Select a call to view details", df["Call ID"].tolist())
-        call_data = df[df["Call ID"] == selected_call].iloc[0]
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write(f"Call ID: {call_data['Call ID']}")
-            st.write(f"Duration: {call_data['Duration']} seconds")
-            st.write(f"Category: {call_data['Category']}")
-
-        with col2:
-            for criterion in [
-                "Problem Addressed?",
-                "Professional Tone?",
-                "Customer Connection?",
-                "Acknowledgment?",
-                "Understanding Shown?",
-                "Clear Communication?"
-            ]:
-                st.write(f"{criterion} {'✅' if call_data[criterion] else '❌'}")
-
-        st.text_area("Transcript", value=call_data["Transcript"], height=200)
-
-    # Data visualization
-    st.subheader("Performance Overview")
     if not df.empty:
-        fig = go.Figure(data=[
-            go.Bar(name=criterion, x=df["Call ID"], y=df[criterion])
-            for criterion in [
-                "Problem Addressed?",
-                "Professional Tone?",
-                "Customer Connection?",
-                "Acknowledgment?",
-                "Understanding Shown?",
-                "Clear Communication?"
-            ]
-        ])
-        fig.update_layout(barmode='group', height=400)
-        st.plotly_chart(fig)
+        render_call_table(df)
+
+        # Navigation
+        col1, col2, col3 = st.columns([1,3,1])
+        with col1:
+            if st.button("⬅️ Previous"):
+                st.session_state.current_call_index = max(0, st.session_state.get('current_call_index', 0) - 1)
+        with col3:
+            if st.button("Next ➡️"):
+                st.session_state.current_call_index = min(len(df) - 1, st.session_state.get('current_call_index', 0) + 1)
+
+        # Show call details
+        current_call = df.iloc[st.session_state.get('current_call_index', 0)]
+        show_call_details(df, current_call['Call ID'])
+
+        # Download CSV
+        st.download_button(
+            label="Download data as CSV",
+            data=df.to_csv(index=False).encode('utf-8'),
+            file_name="call_evaluation_data.csv",
+            mime="text/csv",
+        )
     else:
-        st.info("No data available for visualization. Please analyze some calls first.")
+        st.info("No calls analyzed yet. Upload and analyze a call to see results.")
 
 if __name__ == "__main__":
     main()
