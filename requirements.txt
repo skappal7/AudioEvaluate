@@ -1,10 +1,7 @@
 streamlit
 pandas
-speechrecognition
-spacy
-nltk
-textblob
-wordcloud
-matplotlib
-seaborn
-numpy==1.21.0
+numpy
+plotly
+torch
+whisper
+transformers
