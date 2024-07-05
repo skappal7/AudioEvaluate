@@ -7,3 +7,4 @@ textblob
 wordcloud
 matplotlib
 seaborn
+numpy==1.21.0
